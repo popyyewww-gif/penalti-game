@@ -1,0 +1,160 @@
+import logging
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler
+
+# Bot Token'ın
+TOKEN = "8917511434:AAFUIFuvMvT7jf6Yl0-Yx_2iN0GDjXZ98Xc"
+
+# Yönetici Bilgileri (Senin ID'n ve Kullanıcı Adın)
+ADMIN_ID = 7590922443  
+ADMIN_USERNAME = "Muradov9505"
+
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+
+# Kullanıcı bakiye veritabanı (Demo: 200 USDT, Gerçek: 0 USDT)
+user_balances = {}
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in user_balances:
+        user_balances[user_id] = {"demo": 200.0, "real": 0.0}
+
+    keyboard = [
+        [InlineKeyboardButton("⚽ Oyunu Aç (Mini App)", web_app=WebAppInfo(url="SENIN_OYUN_LINKIN_BURAYA"))],
+        [InlineKeyboardButton("💰 Bakiye Durumu", callback_data="balance")],
+        [InlineKeyboardButton("📥 Bakiye Yükle (Min 30)", callback_data="deposit"), InlineKeyboardButton("📤 Para Çek (Min 75)", callback_data="withdraw")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        "🏆 *VIP Penaltı Şampiyonası'na Hoş Geldiniz!*\n\n"
+        "• 200 USDT Demo Bakiye\n"
+        "• Sınırsız Şut Hakkı & Kasa Avantajı\n"
+        "• VIP Kademeler (150+ = 1.5x | 250+ = 2x)\n\n"
+        "İşlemlerinizi aşağıdaki menüden yönetebilirsiniz:",
+        reply_markup=reply_markup,
+        parse_mode="Markdown"
+    )
+
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+
+    if query.data == "balance":
+        bal = user_balances.get(user_id, {"demo": 200.0, "real": 0.0})
+        await query.message.reply_text(f"💳 *Cüzdan Durumu:*\n\n🎮 Demo Bakiye: `{bal['demo']:.2f} USDT`\n💎 Gerçek Bakiye: `{bal['real']:.2f} USDT`", parse_mode="Markdown")
+
+    elif query.data == "deposit":
+        await query.message.reply_text(
+            "📥 *Yatırım İşlemi (Min 30 USDT)*\n\n"
+            f"Yatırım yapmak için yöneticiye (@{ADMIN_USERNAME}) yazın veya komutla bildirin:\n"
+            "Örnek: `/yatir 50`",
+            parse_mode="Markdown"
+        )
+
+    elif query.data == "withdraw":
+        await query.message.reply_text(
+            "📤 *Para Çekme İşlemi (Min 75 USDT)*\n\n"
+            "Çekim talebi oluşturmak için cüzdan adresinizle birlikte yazın:\n"
+            "Örnek: `/cek 100 TCOZELCUZDANADRESINIZ...`",
+            parse_mode="Markdown"
+        )
+
+async def deposit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    username = update.effective_user.username or "Bilinmeyen"
+    
+    if not context.args:
+        await update.message.reply_text("Lütfen miktar belirtin. Örnek: `/yatir 30`", parse_mode="Markdown")
+        return
+    
+    try:
+        amount = float(context.args[0])
+    except ValueError:
+        await update.message.reply_text("Lütfen geçerli bir sayı girin.")
+        return
+
+    if amount < 30:
+        await update.message.reply_text("❌ Minimum yatırım tutarı **30 USDT** olmalıdır!", parse_mode="Markdown")
+        return
+
+    await update.message.reply_text(f"✅ {amount} USDT yatırım talebiniz alındı. Ödemeyi gerçekleştikten sonra yönetici (@{ADMIN_USERNAME}) tarafından onaylanması bekleniyor.")
+    
+    # Yöneticiye (Sana) Bildirim Gönderir
+    if ADMIN_ID != 0:
+        await context.bot.send_message(
+            chat_id=ADMIN_ID,
+            text=f"🔔 *Yeni Yatırım Talebi!*\n\nKullanıcı: @{username} (`{user_id}`)\nTutar: `{amount} USDT`\n\nOnaylamak için:\n`/onayla {user_id} {amount}`",
+            parse_mode="Markdown"
+        )
+
+async def withdraw_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    username = update.effective_user.username or "Bilinmeyen"
+    
+    if len(context.args) < 2:
+        await update.message.reply_text(f"Kullanım: `/cek [miktar] [TRC20_Adresi]`\nÖrnek: `/cek 75 TCOZELCUZDAN...`", parse_mode="Markdown")
+        return
+    
+    try:
+        amount = float(context.args[0])
+    except ValueError:
+        await update.message.reply_text("Lütfen geçerli bir miktar girin.")
+        return
+
+    address = context.args[1]
+    bal = user_balances.get(user_id, {"demo": 200.0, "real": 0.0})
+
+    if amount < 75:
+        await update.message.reply_text("❌ Minimum para çekme tutarı **75 USDT**'dir!", parse_mode="Markdown")
+        return
+
+    if bal["real"] < amount:
+        await update.message.reply_text("❌ Gerçek bakiyeniz bu çekim için yetersiz!")
+        return
+
+    bal["real"] -= amount
+    await update.message.reply_text(f"✅ {amount} USDT çekim talebiniz başarıyla oluşturuldu. Yönetici (@{ADMIN_USERNAME}) onayından sonra cüzdanınıza gönderilecektir.")
+
+    if ADMIN_ID != 0:
+        await context.bot.send_message(
+            chat_id=ADMIN_ID,
+            text=f"🔔 *Yeni Çekim Talebi!*\n\nKullanıcı: @{username} (`{user_id}`)\nTutar: `{amount} USDT`\nAdres: `{address}`",
+            parse_mode="Markdown"
+        )
+
+async def approve_deposit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        await update.message.reply_text(f"Bu komutu yalnızca yönetici (@{ADMIN_USERNAME}) kullanabilir.")
+        return
+    
+    if len(context.args) < 2:
+        await update.message.reply_text("Kullanım: `/onayla [user_id] [miktar]`")
+        return
+    
+    target_user_id = int(context.args[0])
+    amount = float(context.args[1])
+    
+    if target_user_id not in user_balances:
+        user_balances[target_user_id] = {"demo": 200.0, "real": 0.0}
+    
+    user_balances[target_user_id]["real"] += amount
+    
+    await update.message.reply_text(f"Kullanıcı ({target_user_id}) hesabına {amount} USDT gerçek bakiye eklendi!")
+    await context.bot.send_message(chat_id=target_user_id, text=f"🎉 Yatırımınız yönetici tarafından onaylandı! Hesabınıza `{amount} USDT` gerçek bakiye yüklendi.", parse_mode="Markdown")
+
+def main():
+    app = ApplicationBuilder().token(TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(button_handler))
+    app.add_handler(CommandHandler("yatir", deposit_command))
+    app.add_handler(CommandHandler("cek", withdraw_command))
+    app.add_handler(CommandHandler("onayla", approve_deposit))
+
+    print(f"Telegram Bot aktif ve çalışıyor (Yönetici: @{ADMIN_USERNAME})...")
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
